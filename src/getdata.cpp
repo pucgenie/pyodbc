@@ -623,9 +623,22 @@ static PyObject* GetDataTimestamp(Cursor* cur, Py_ssize_t iCol)
     if (!SQL_SUCCEEDED(ret))
         return RaiseErrorFromHandle(cur->cnxn, "SQLGetData", cur->cnxn->hdbc, cur->hstmt);
 
-    if (cbFetched == SQL_NULL_DATA)
+    // Let's assume that there will never be any timestamp structure of size (2**32 -1)
+    // 2020-09-18 This hotfix catches a sybase driver bug symptom.
+    if (cbFetched == SQL_NULL_DATA
+#if (SIZEOF_LONG_INT == 8)
+    // scratch: python3 setup.py build && pip3 install . --user --upgrade
+        || cbFetched == 0x00000000FFFFFFFF
+#endif
+    ) {
         Py_RETURN_NONE;
+    }
 
+    // In any case, this situation would be caused by buffer overflows or -underruns.
+    if (cbFetched != sizeof(value)) {
+       fprintf(stderr, "weird-size result_%d: %lld\n", sizeof(SQLLEN), cbFetched);
+    }
+    
     switch (cur->colinfos[iCol].sql_type)
     {
     case SQL_TYPE_TIME:
